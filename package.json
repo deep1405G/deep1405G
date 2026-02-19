@@ -1,0 +1,35 @@
+{
+  "name": "deep1405g",
+  "version": "1.0.0",
+  "description": "Mental Wellness Self-Check Portal with anonymous chatbot and safety flows.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deep1405G/deep1405G.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/deep1405G/deep1405G/issues"
+  },
+  "homepage": "https://github.com/deep1405G/deep1405G#readme",
+  "dependencies": {
+    "@babel/standalone": "^7.29.1",
+    "axios": "^1.13.5",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
+  }
+}

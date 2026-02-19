@@ -1,0 +1,83 @@
+{
+  "info": {
+    "name": "Mental Wellness Portal",
+    "_postman_id": "c1c1f9c4-0000-4af3-9e6c-demo",
+    "description": "Endpoints for anonymous chat, check-ins, escalation, and resources.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create Session",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/chat/session",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "chat", "session"]
+        }
+      }
+    },
+    {
+      "name": "Send Message",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"hello\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/chat/{{sessionId}}/message",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "chat", "{{sessionId}}", "message"]
+        }
+      }
+    },
+    {
+      "name": "Check-in (GAD-7)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"GAD-7\",\n  \"answers\": [0,1,2,1,0,2]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/checkin/{{sessionId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "checkin", "{{sessionId}}"]
+        }
+      }
+    },
+    {
+      "name": "Trigger Escalation",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/escalate/{{sessionId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "escalate", "{{sessionId}}"]
+        }
+      }
+    },
+    {
+      "name": "Resources Search",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/resources?q=breathing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "resources"],
+          "query": [{ "key": "q", "value": "breathing" }]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "sessionId", "value": "replace-with-session-id" }
+  ]
+}

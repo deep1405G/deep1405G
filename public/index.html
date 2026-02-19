@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mental Wellness Self-Check Portal</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="/vendor/react.js"></script>
+    <script src="/vendor/react-dom.js"></script>
+    <script src="/vendor/axios.js"></script>
+    <script src="/vendor/babel.js"></script>
+  </head>
+  <body>
+    <div id="root" aria-live="polite"></div>
+    <script type="text/babel">
+      const { useEffect, useRef, useState } = React;
+
+      const hotlineDirectory = [
+        { label: '988 Suicide & Crisis Lifeline', value: '988' },
+        { label: 'Campus Security', value: 'tel:+180000000' },
+        { label: 'Local Emergency', value: '911' },
+      ];
+
+      const quickReplies = [
+        "I'm feeling stressed",
+        'Start a GAD-7 check-in',
+        'Share a breathing exercise',
+        'Show helpful resources',
+        'Play a quick game',
+      ];
+
+      const gadQuestions = [
+        'Feeling nervous, anxious, or on edge',
+        'Not being able to stop or control worrying',
+        'Trouble relaxing',
+        'Being so restless that it is hard to sit still',
+        'Becoming easily annoyed or irritable',
+        'Feeling afraid something awful might happen',
+      ];
+
+      const phqQuestions = [
+        'Little interest or pleasure in doing things',
+        'Feeling down, depressed, or hopeless',
+        'Trouble sleeping or sleeping too much',
+        'Feeling tired or having little energy',
+        'Poor appetite or overeating',
+        'Feeling bad about yourself',
+        'Trouble concentrating',
+        'Moving or speaking slowly; or being fidgety',
+        'Thoughts that you would be better off not here',
+      ];
+
+      const trivia = [
+        { q: 'What is 4-7-8?', a: 'A calming breathing pattern: inhale 4, hold 7, exhale 8.' },
+        { q: 'Name one grounding technique.', a: 'Identify 5 things you can see, 4 you can touch, 3 you can hear, 2 you can smell, 1 you can taste.' },
+        { q: 'Best length for a microbreak?', a: 'About 3-5 minutes to reset focus and calm.' },
+      ];
+
+      function App() {
+        const [session, setSession] = useState(null);
+        const [messages, setMessages] = useState([]);
+        const [input, setInput] = useState('');
+        const [status, setStatus] = useState('Connecting to anonymous session...');
+        const [escalation, setEscalation] = useState(null);
+        const [resources, setResources] = useState([]);
+        const [checkinResult, setCheckinResult] = useState(null);
+        const [checkinDraft, setCheckinDraft] = useState(null);
+        const [fontSize, setFontSize] = useState(16);
+        const [gameState, setGameState] = useState({ breathing: null, trivia: null, wordPrompt: '' });
+        const [consentAccepted, setConsentAccepted] = useState(false);
+        const [analytics, setAnalytics] = useState({ sessions: 0, messages: 0, gamesPlayed: 0, escalations: 0 });
+        const messagesEndRef = useRef(null);
+
+        useEffect(() => {
+          createSession();
+        }, []);
+
+        useEffect(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, [messages]);
+
+        const createSession = async () => {
+          try {
+            const { data } = await axios.post('/api/chat/session');
+            setSession(data);
+            setStatus('Anonymous session active');
+            openStream(data.sessionId);
+            sendMessage(data.sessionId, '');
+            searchResources('');
+          } catch (err) {
+            setStatus('Unable to start session. Please retry.');
+          }
+        };
+
+        useEffect(() => {
+          const interval = setInterval(async () => {
+            try {
+              const { data } = await axios.get('/api/analytics/summary');
+              setAnalytics(data);
+            } catch (err) {}
+          }, 5000);
+          return () => clearInterval(interval);
+        }, []);
+
+        const openStream = (sessionId) => {
+          const source = new EventSource(`/api/chat/${sessionId}/stream`);
+          source.onmessage = () => {};
+          source.addEventListener('bot_message', (event) => {
+            const payload = JSON.parse(event.data);
+            setMessages((prev) => [...prev, { sender: 'bot', text: payload.reply, risk: payload.risk }]);
+            if (payload.risk?.level === 'high') {
+              setEscalation({ message: 'High risk detected', hotline: payload.hotlineDirectory });
+            }
+          });
+          source.addEventListener('escalation', (event) => {
+            const payload = JSON.parse(event.data);
+            setEscalation({ message: payload.message, hotline: payload.hotlineDirectory });
+          });
+          source.onerror = () => {
+            setStatus('Connection lost. Reconnecting...');
+          };
+        };
+
+        const sendMessage = async (sessionId, text) => {
+          if (!sessionId) return;
+          if (text) {
+            setMessages((prev) => [...prev, { sender: 'user', text }]);
+          }
+          try {
+            const { data } = await axios.post(`/api/chat/${sessionId}/message`, { message: text });
+            setMessages((prev) => [...prev, { sender: 'bot', text: data.reply, risk: data.risk }]);
+            if (data.risk?.level === 'high') {
+              setEscalation({ message: 'High risk detected', hotline: data.hotlineDirectory });
+            }
+          } catch (err) {
+            setStatus('Message failed. Check connection.');
+          }
+        };
+
+        const handleSend = () => {
+          if (!consentAccepted) {
+            setStatus('Please confirm the privacy banner before chatting.');
+            return;
+          }
+          if (!input.trim()) return;
+          sendMessage(session?.sessionId, input.trim());
+          setInput('');
+        };
+
+        const startCheckIn = (type) => {
+          if (!consentAccepted) {
+            setStatus('Please accept privacy notice before starting check-ins.');
+            return;
+          }
+          const source = type === 'PHQ-9' ? phqQuestions : gadQuestions;
+          setCheckinDraft({ type, answers: Array(source.length).fill(0) });
+          setCheckinResult(null);
+        };
+
+        const updateCheckInAnswer = (idx, value) => {
+          setCheckinDraft((draft) => {
+            if (!draft) return draft;
+            const updated = [...draft.answers];
+            updated[idx] = Number(value);
+            return { ...draft, answers: updated };
+          });
+        };
+
+        const submitCheckIn = async () => {
+          if (!consentAccepted) {
+            setStatus('Please accept privacy notice before starting check-ins.');
+            return;
+          }
+          if (!checkinDraft) {
+            setStatus('Start a check-in first.');
+            return;
+          }
+          const questions = checkinDraft.type === 'PHQ-9' ? phqQuestions : gadQuestions;
+          if (checkinDraft.answers.length !== questions.length) {
+            setStatus('Please answer all check-in questions.');
+            return;
+          }
+          const { data } = await axios.post(`/api/checkin/${session.sessionId}`, {
+            answers: checkinDraft.answers,
+            type: checkinDraft.type,
+          });
+          setCheckinResult(data);
+          setCheckinDraft(null);
+          setMessages((prev) => [
+            ...prev,
+            { sender: 'bot', text: `${data.type} score ${data.score} (${data.level}). ${data.guidance}` },
+          ]);
+        };
+
+        const searchResources = async (term) => {
+          const { data } = await axios.get('/api/resources', { params: { q: term } });
+          setResources(data.resources);
+        };
+
+        const startBreathing = async () => {
+          if (!consentAccepted) {
+            setStatus('Please accept privacy notice before playing.');
+            return;
+          }
+          if (session) await axios.post(`/api/games/${session.sessionId}/played`);
+          const steps = ['Inhale for 4', 'Hold for 7', 'Exhale for 8', 'Great job!'];
+          let index = 0;
+          setGameState((s) => ({ ...s, breathing: steps[0] }));
+          const timer = setInterval(() => {
+            index += 1;
+            if (index >= steps.length) {
+              clearInterval(timer);
+              setGameState((s) => ({ ...s, breathing: 'Completed' }));
+            } else {
+              setGameState((s) => ({ ...s, breathing: steps[index] }));
+            }
+          }, 2000);
+        };
+
+        const playTrivia = async () => {
+          if (!consentAccepted) {
+            setStatus('Please accept privacy notice before playing.');
+            return;
+          }
+          if (session) await axios.post(`/api/games/${session.sessionId}/played`);
+          const pick = trivia[Math.floor(Math.random() * trivia.length)];
+          setGameState((s) => ({ ...s, trivia: pick }));
+        };
+
+        const startWordAssociation = async () => {
+          if (!consentAccepted) {
+            setStatus('Please accept privacy notice before playing.');
+            return;
+          }
+          if (session) await axios.post(`/api/games/${session.sessionId}/played`);
+          const prompts = ['Calm', 'Hope', 'Support', 'Energy', 'Focus'];
+          const prompt = prompts[Math.floor(Math.random() * prompts.length)];
+          setGameState((s) => ({ ...s, wordPrompt: prompt }));
+        };
+
+        const triggerEscalation = async () => {
+          if (!session) return;
+          const { data } = await axios.post(`/api/escalate/${session.sessionId}`);
+          setEscalation({ message: 'Escalation requested', hotline: data.hotlineDirectory });
+        };
+
+        return (
+          <div className="app-shell" style={{ fontSize }}>
+            <header className="header">
+              <div>
+                <div className="title">Mental Wellness Self-Check Portal</div>
+                <div aria-live="polite" className="badge" role="status">
+                  {status}
+                </div>
+              </div>
+              <div className="controls" role="group" aria-label="Accessibility controls">
+                <button className="control-btn" onClick={() => setFontSize((s) => Math.max(14, s - 2))}>
+                  A-
+                </button>
+                <button className="control-btn" onClick={() => setFontSize((s) => s + 2)}>A+</button>
+                <button className="control-btn" onClick={() => setStatus('Anonymous session active')}>
+                  Reset status
+                </button>
+              </div>
+            </header>
+
+            <section className="panel consent" aria-label="Consent notice">
+              <input
+                type="checkbox"
+                aria-label="Consent to anonymous session with crisis exceptions"
+                checked={consentAccepted}
+                onChange={(e) => setConsentAccepted(e.target.checked)}
+              />
+              <div>
+                <strong>Privacy:</strong> Guest sessions are anonymous and auto-expire. Crisis-related content may trigger safety escalation and logging of minimal metadata.
+              </div>
+            </section>
+
+            <section className="panel chat-area">
+              <div>
+                <div className="messages" role="log" aria-live="polite">
+                  {messages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`message ${msg.sender === 'user' ? 'user' : 'bot'}`}
+                      aria-label={`${msg.sender} message`}
+                    >
+                      {msg.text}
+                      {msg.risk?.level === 'high' && <div className="escalation">High risk detected</div>}
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+                <div className="input-area">
+                  <input
+                    aria-label="Message input"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                    placeholder="Share how you're feeling. No names needed."
+                    disabled={!consentAccepted}
+                  />
+                  <button className="primary" onClick={handleSend} aria-label="Send message" disabled={!consentAccepted}>
+                    Send
+                  </button>
+                </div>
+                <div className="quick-replies" role="group" aria-label="Quick replies">
+                  {quickReplies.map((reply) => (
+                    <button
+                      key={reply}
+                      className="pill"
+                      disabled={!consentAccepted}
+                      onClick={() => {
+                        if (!consentAccepted) {
+                          setStatus('Please confirm the privacy banner before chatting.');
+                          return;
+                        }
+                        sendMessage(session?.sessionId, reply);
+                      }}
+                    >
+                      {reply}
+                    </button>
+                  ))}
+                  <button className="pill" onClick={triggerEscalation}>Emergency help</button>
+                </div>
+              </div>
+
+              <div aria-label="Actions and tools" className="side-tools">
+                <div className="panel game-card">
+                  <div className="title" style={{ fontSize: '1rem' }}>Guided check-ins</div>
+                  <div className="controls">
+                    <button className="control-btn" onClick={() => startCheckIn('GAD-7')} disabled={!consentAccepted}>Run GAD-7</button>
+                    <button className="control-btn" onClick={() => startCheckIn('PHQ-9')} disabled={!consentAccepted}>Run PHQ-9</button>
+                  </div>
+                  {checkinDraft && (
+                    <div style={{ marginTop: 10 }}>
+                      <div><strong>{checkinDraft.type}</strong> — select how often you felt each item (0-3).</div>
+                      {(checkinDraft.type === 'PHQ-9' ? phqQuestions : gadQuestions).map((q, idx) => (
+                        <label key={q} style={{ display: 'block', marginTop: 6 }}>
+                          <span>{idx + 1}. {q}</span>
+                          <select
+                            aria-label={`Response for ${q}`}
+                            value={checkinDraft.answers[idx]}
+                            onChange={(e) => updateCheckInAnswer(idx, e.target.value)}
+                            style={{ marginLeft: 6 }}
+                          >
+                            <option value={0}>0 - Not at all</option>
+                            <option value={1}>1 - Several days</option>
+                            <option value={2}>2 - More than half the days</option>
+                            <option value={3}>3 - Nearly every day</option>
+                          </select>
+                        </label>
+                      ))}
+                      <button className="primary" style={{ marginTop: 8 }} onClick={submitCheckIn}>Submit check-in</button>
+                    </div>
+                  )}
+                  {checkinResult && (
+                    <div className="escalation" role="status">
+                      {checkinResult.type} score {checkinResult.score} ({checkinResult.level}) — {checkinResult.guidance}
+                    </div>
+                  )}
+                </div>
+
+                <div className="panel game-card">
+                  <div className="title" style={{ fontSize: '1rem' }}>Microgames</div>
+                  <div className="controls">
+                    <button className="control-btn" onClick={startBreathing} disabled={!consentAccepted}>Breathing coach</button>
+                    <button className="control-btn" onClick={playTrivia} disabled={!consentAccepted}>Trivia</button>
+                    <button className="control-btn" onClick={startWordAssociation} disabled={!consentAccepted}>Word association</button>
+                  </div>
+                  {gameState.breathing && <div aria-live="polite">Breathing: {gameState.breathing}</div>}
+                  {gameState.trivia && (
+                    <div>
+                      <strong>{gameState.trivia.q}</strong>
+                      <div>{gameState.trivia.a}</div>
+                    </div>
+                  )}
+                  {gameState.wordPrompt && (
+                    <div>
+                      Prompt: <strong>{gameState.wordPrompt}</strong>
+                      <div>Type words you associate to reframe your mood.</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="title" style={{ fontSize: '1.1rem' }}>Resource library</div>
+              <div className="input-area" style={{ marginTop: 8 }}>
+                <input
+                  placeholder="Search resources (ex: breathing, counselor)"
+                  aria-label="Search resources"
+                  onChange={(e) => searchResources(e.target.value)}
+                />
+              </div>
+              <div className="resource-grid" role="list">
+                {resources.map((res) => (
+                  <div key={res.id} className="resource-card" role="listitem">
+                    <div><strong>{res.title}</strong></div>
+                    <a href={res.url} target="_blank" rel="noreferrer">Open</a>
+                    <div>{res.tags.join(', ')}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel metrics" aria-label="Anonymized analytics">
+              <div className="metric-chip">Sessions: {analytics.sessions}</div>
+              <div className="metric-chip">Messages: {analytics.messages}</div>
+              <div className="metric-chip">Games: {analytics.gamesPlayed}</div>
+              <div className="metric-chip">Escalations: {analytics.escalations}</div>
+            </section>
+
+            {escalation && (
+              <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Escalation options">
+                <div className="modal">
+                  <div className="title" style={{ fontSize: '1.1rem' }}>Safety first</div>
+                  <p>
+                    {escalation.message || 'We noticed distress. Your safety matters.'} Here is our fixed safety script:
+                    If you are in danger or thinking of harming yourself, please reach out immediately.
+                  </p>
+                  <ul>
+                    {(escalation.hotline || hotlineDirectory).map((line) => (
+                      <li key={line.value}>{line.label}: {line.value}</li>
+                    ))}
+                  </ul>
+                  <button className="primary" onClick={() => setEscalation(null)}>Close</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
