@@ -11,10 +11,10 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
       rel="stylesheet"
     />
-    <script src="/vendor/react/umd/react.development.js"></script>
-    <script src="/vendor/react-dom/umd/react-dom.development.js"></script>
-    <script src="/vendor/axios/dist/axios.min.js"></script>
-    <script src="/vendor/@babel/standalone/babel.min.js"></script>
+    <script src="/vendor/react.js"></script>
+    <script src="/vendor/react-dom.js"></script>
+    <script src="/vendor/axios.js"></script>
+    <script src="/vendor/babel.js"></script>
   </head>
   <body>
     <div id="root" aria-live="polite"></div>
@@ -70,6 +70,7 @@
         const [escalation, setEscalation] = useState(null);
         const [resources, setResources] = useState([]);
         const [checkinResult, setCheckinResult] = useState(null);
+        const [checkinDraft, setCheckinDraft] = useState(null);
         const [fontSize, setFontSize] = useState(16);
         const [gameState, setGameState] = useState({ breathing: null, trivia: null, wordPrompt: '' });
         const [consentAccepted, setConsentAccepted] = useState(false);
@@ -152,18 +153,48 @@
           setInput('');
         };
 
-        const submitCheckIn = async (type) => {
+        const startCheckIn = (type) => {
           if (!consentAccepted) {
             setStatus('Please accept privacy notice before starting check-ins.');
             return;
           }
-          const source = type === 'GAD-7' ? gadQuestions : phqQuestions;
-          const answers = source.map(() => Math.floor(Math.random() * 4));
-          const { data } = await axios.post(`/api/checkin/${session.sessionId}`, { answers, type });
+          const source = type === 'PHQ-9' ? phqQuestions : gadQuestions;
+          setCheckinDraft({ type, answers: Array(source.length).fill(0) });
+          setCheckinResult(null);
+        };
+
+        const updateCheckInAnswer = (idx, value) => {
+          setCheckinDraft((draft) => {
+            if (!draft) return draft;
+            const updated = [...draft.answers];
+            updated[idx] = Number(value);
+            return { ...draft, answers: updated };
+          });
+        };
+
+        const submitCheckIn = async () => {
+          if (!consentAccepted) {
+            setStatus('Please accept privacy notice before starting check-ins.');
+            return;
+          }
+          if (!checkinDraft) {
+            setStatus('Start a check-in first.');
+            return;
+          }
+          const questions = checkinDraft.type === 'PHQ-9' ? phqQuestions : gadQuestions;
+          if (checkinDraft.answers.length !== questions.length) {
+            setStatus('Please answer all check-in questions.');
+            return;
+          }
+          const { data } = await axios.post(`/api/checkin/${session.sessionId}`, {
+            answers: checkinDraft.answers,
+            type: checkinDraft.type,
+          });
           setCheckinResult(data);
+          setCheckinDraft(null);
           setMessages((prev) => [
             ...prev,
-            { sender: 'bot', text: `${type} score ${data.score} (${data.level}). ${data.guidance}` },
+            { sender: 'bot', text: `${data.type} score ${data.score} (${data.level}). ${data.guidance}` },
           ]);
         };
 
@@ -304,9 +335,31 @@
                 <div className="panel game-card">
                   <div className="title" style={{ fontSize: '1rem' }}>Guided check-ins</div>
                   <div className="controls">
-                    <button className="control-btn" onClick={() => submitCheckIn('GAD-7')} disabled={!consentAccepted}>Run GAD-7</button>
-                    <button className="control-btn" onClick={() => submitCheckIn('PHQ-9')} disabled={!consentAccepted}>Run PHQ-9</button>
+                    <button className="control-btn" onClick={() => startCheckIn('GAD-7')} disabled={!consentAccepted}>Run GAD-7</button>
+                    <button className="control-btn" onClick={() => startCheckIn('PHQ-9')} disabled={!consentAccepted}>Run PHQ-9</button>
                   </div>
+                  {checkinDraft && (
+                    <div style={{ marginTop: 10 }}>
+                      <div><strong>{checkinDraft.type}</strong> — select how often you felt each item (0-3).</div>
+                      {(checkinDraft.type === 'PHQ-9' ? phqQuestions : gadQuestions).map((q, idx) => (
+                        <label key={q} style={{ display: 'block', marginTop: 6 }}>
+                          <span>{idx + 1}. {q}</span>
+                          <select
+                            aria-label={`Response for ${q}`}
+                            value={checkinDraft.answers[idx]}
+                            onChange={(e) => updateCheckInAnswer(idx, e.target.value)}
+                            style={{ marginLeft: 6 }}
+                          >
+                            <option value={0}>0 - Not at all</option>
+                            <option value={1}>1 - Several days</option>
+                            <option value={2}>2 - More than half the days</option>
+                            <option value={3}>3 - Nearly every day</option>
+                          </select>
+                        </label>
+                      ))}
+                      <button className="primary" style={{ marginTop: 8 }} onClick={submitCheckIn}>Submit check-in</button>
+                    </div>
+                  )}
                   {checkinResult && (
                     <div className="escalation" role="status">
                       {checkinResult.type} score {checkinResult.score} ({checkinResult.level}) — {checkinResult.guidance}
@@ -370,7 +423,7 @@
                 <div className="modal">
                   <div className="title" style={{ fontSize: '1.1rem' }}>Safety first</div>
                   <p>
-                    {escalation.message || 'We noticed distress. Your safety matters.'} This is the fixed safety script:
+                    {escalation.message || 'We noticed distress. Your safety matters.'} Here is our fixed safety script:
                     If you are in danger or thinking of harming yourself, please reach out immediately.
                   </p>
                   <ul>

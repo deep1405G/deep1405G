@@ -18,7 +18,7 @@ test('anonymous chat flow', async () => {
 
   const checkinRes = await request(app)
     .post(`/api/checkin/${sessionId}`)
-    .send({ type: 'GAD-7', answers: [1, 1, 1, 1, 1, 1] });
+    .send({ type: 'GAD-7', answers: [1, 1, 1, 1, 1, 1, 1] });
   assert.equal(checkinRes.statusCode, 200);
   assert.equal(checkinRes.body.type, 'GAD-7');
   assert.ok(typeof checkinRes.body.score === 'number');

@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
@@ -9,7 +10,19 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/vendor', express.static(path.join(__dirname, 'node_modules')));
+
+const vendorReact = fs.readFileSync(path.join(__dirname, 'node_modules/react/umd/react.development.js'));
+const vendorReactDom = fs.readFileSync(path.join(__dirname, 'node_modules/react-dom/umd/react-dom.development.js'));
+const vendorAxios = fs.readFileSync(path.join(__dirname, 'node_modules/axios/dist/axios.min.js'));
+const vendorBabel = fs.readFileSync(path.join(__dirname, 'node_modules/@babel/standalone/babel.min.js'));
+
+app.get('/vendor/react.js', (_req, res) => res.type('application/javascript').send(vendorReact));
+app.get('/vendor/react-dom.js', (_req, res) => res.type('application/javascript').send(vendorReactDom));
+app.get('/vendor/axios.js', (_req, res) => res.type('application/javascript').send(vendorAxios));
+app.get('/vendor/babel.js', (_req, res) => res.type('application/javascript').send(vendorBabel));
+
+const SESSION_TTL_MS = 60 * 60 * 1000;
+const CRISIS_KEYWORDS = ['suicide', 'kill myself', 'hurt myself', 'end it', "can't go on", 'overdose'];
 
 const sessions = new Map();
 const streams = new Map();
@@ -45,8 +58,7 @@ function broadcast(sessionId, event, data) {
 
 function detectRisk(message = '') {
   const normalized = message.toLowerCase();
-  const crisisKeywords = ['suicide', 'kill myself', 'hurt myself', 'end it', 'can\'t go on', 'overdose'];
-  const concerning = crisisKeywords.some((word) => normalized.includes(word));
+  const concerning = CRISIS_KEYWORDS.some((word) => normalized.includes(word));
   if (concerning) {
     return { level: 'high', reason: 'crisis_keyword' };
   }
@@ -89,7 +101,7 @@ function ensureSession(sessionId) {
 app.post('/api/chat/session', (_req, res) => {
   const now = new Date();
   const sessionId = uuidv4();
-  const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
   const session = { sessionId, createdAt: now.toISOString(), expiresAt: expiresAt.toISOString(), anonymous: true };
   sessions.set(sessionId, session);
   analytics.sessions += 1;
@@ -141,6 +153,11 @@ app.post('/api/checkin/:sessionId', (req, res) => {
   const session = ensureSession(sessionId);
   if (!session) {
     return res.status(404).json({ error: 'Session not found or expired' });
+  }
+  const expectedLengths = { 'GAD-7': 7, 'PHQ-9': 9 };
+  const expectedLength = expectedLengths[type] || expectedLengths['GAD-7'];
+  if (!Array.isArray(answers) || answers.length !== expectedLength) {
+    return res.status(400).json({ error: `Expected ${expectedLength} answers for ${type}` });
   }
   const score = answers.reduce((sum, val) => sum + Number(val || 0), 0);
   const level = score >= 15 ? 'high' : score >= 10 ? 'moderate' : 'low';
